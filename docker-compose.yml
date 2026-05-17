@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: distridoc-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - distridoc-net
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: distridoc-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - distridoc-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway-server:
+    build: ./gateway-server
+    container_name: distridoc-gateway
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - MONGO_URI=mongodb://mongodb:27017/student-doc-repo
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=supersecretjwtkey_override_in_prod
+      - STORAGE_NODE_1=http://storage-node-1:5001
+      - STORAGE_NODE_2=http://storage-node-2:5002
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - distridoc-net
+
+  storage-node-1:
+    build: ./storage-node-1
+    container_name: distridoc-node-1
+    ports:
+      - "5001:5001"
+    environment:
+      - PORT=5001
+      - NODE_ID=storage-node-1
+      - MONGO_URI=mongodb://mongodb:27017/storage-node-1-db
+      - REDIS_URL=redis://redis:6379
+      - GATEWAY_URL=http://gateway-server:5000
+      - PEER_NODE_URL=http://storage-node-2:5002
+    volumes:
+      - node1-uploads:/app/uploads
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - distridoc-net
+
+  storage-node-2:
+    build: ./storage-node-2
+    container_name: distridoc-node-2
+    ports:
+      - "5002:5002"
+    environment:
+      - PORT=5002
+      - NODE_ID=storage-node-2
+      - MONGO_URI=mongodb://mongodb:27017/storage-node-2-db
+      - REDIS_URL=redis://redis:6379
+      - GATEWAY_URL=http://gateway-server:5000
+      - PEER_NODE_URL=http://storage-node-1:5001
+    volumes:
+      - node2-uploads:/app/uploads
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - distridoc-net
+
+  frontend:
+    build: ./frontend
+    container_name: distridoc-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - gateway-server
+    networks:
+      - distridoc-net
+
+networks:
+  distridoc-net:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  node1-uploads:
+  node2-uploads:

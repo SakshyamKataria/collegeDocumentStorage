@@ -1,0 +1,26 @@
+{
+  "name": "storage-node-1",
+  "version": "1.0.0",
+  "description": "Storage Node 1 - Distributed Student Document Repository",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.16.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "form-data": "^4.0.5",
+    "mongoose": "^9.6.2",
+    "multer": "^2.1.1",
+    "redis": "^5.12.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
