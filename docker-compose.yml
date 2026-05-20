@@ -36,6 +36,7 @@ services:
       - "5000:5000"
     environment:
       - PORT=5000
+      - JWT_EXPIRE=7d  
       - MONGO_URI=mongodb://mongodb:27017/student-doc-repo
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=supersecretjwtkey_override_in_prod

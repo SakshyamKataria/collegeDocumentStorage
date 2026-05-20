@@ -1,190 +1,159 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Download, FileText, CheckCircle2, Clock, XCircle, Edit3, Trash2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Download, FileText, CheckCircle2, Clock, XCircle, Edit3, Trash2, Search } from 'lucide-react';
 import api from '../services/api';
 import { getSocket } from '../services/socket';
 
-const StatusBadge = ({ status }) => {
-  switch (status) {
-    case 'completed':
-      return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 size={12}/> Replicated</span>;
-    case 'pending':
-      return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"><Clock size={12}/> Syncing</span>;
-    case 'failed':
-      return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200"><XCircle size={12}/> Failed</span>;
-    default:
-      return null;
-  }
+const card = { background: '#0F1623', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, boxShadow: '0 4px 24px rgba(0,0,0,0.25)', overflow: 'hidden' };
+const font = "'Inter', sans-serif";
+
+const BADGE = {
+  completed: { label: 'Replicated', color: '#10b981', bg: 'rgba(16,185,129,0.12)', Icon: CheckCircle2 },
+  pending:   { label: 'Syncing',    color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  Icon: Clock        },
+  failed:    { label: 'Failed',     color: '#f43f5e', bg: 'rgba(244,63,94,0.12)',   Icon: XCircle      },
+};
+
+const Badge = ({ status }) => {
+  const b = BADGE[status] || BADGE.pending;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 8, background: b.bg, color: b.color, fontSize: 11, fontWeight: 500, fontFamily: font }}>
+      <b.Icon size={11} />{b.label}
+    </span>
+  );
 };
 
 export default function DocumentsList() {
-  const [documents, setDocuments] = useState([]);
+  const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [user, setUser] = useState(null);
 
   const fetchDocs = useCallback(async () => {
-    try {
-      const res = await api.get('/documents');
-      setDocuments(res.data.data);
-    } catch (err) {
-      console.error('Failed to fetch documents', err);
-    } finally {
-      setLoading(false);
-    }
+    try { const r = await api.get('/documents'); setDocs(r.data.data); }
+    catch (e) { console.error(e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
-    try {
-      setUser(JSON.parse(localStorage.getItem('user') || 'null'));
-    } catch (error) {
-      setUser(null);
-    }
-
+    try { setUser(JSON.parse(localStorage.getItem('user') || 'null')); } catch {}
     fetchDocs();
+    const s = getSocket();
+    s.on('document:created', d => { if (d) setDocs(p => [d, ...p.filter(x => x._id !== d._id)]); });
+    s.on('document:deleted', ({ id }) => setDocs(p => p.filter(d => d._id !== id)));
+    s.on('document:updated', u => setDocs(p => p.map(d => d._id === u._id ? u : d)));
+    return () => { s.off('document:created'); s.off('document:deleted'); s.off('document:updated'); };
+  }, [fetchDocs]);
 
-    const socket = getSocket();
-    const userId = user?._id || user?.id;
-    const getOwnerId = (doc) => (doc?.uploadedBy?._id ? doc.uploadedBy._id : doc?.uploadedBy);
-    const handleCreated = (doc) => {
-      if (!doc) return;
-      const ownerId = getOwnerId(doc);
-      if (user?.role === 'admin' || ownerId === userId || doc.visibility === 'shared') {
-        setDocuments((prev) => [doc, ...prev.filter((item) => item._id !== doc._id)]);
-      }
-    };
-    const handleDeleted = ({ id }) => {
-      setDocuments((prev) => prev.filter((doc) => doc._id !== id));
-    };
-    const handleUpdated = (updatedDoc) => {
-      setDocuments((prev) => prev.map((doc) => doc._id === updatedDoc._id ? updatedDoc : doc));
-    };
-
-    socket.on('document:created', handleCreated);
-    socket.on('document:deleted', handleDeleted);
-    socket.on('document:updated', handleUpdated);
-
-    return () => {
-      socket.off('document:created', handleCreated);
-      socket.off('document:deleted', handleDeleted);
-      socket.off('document:updated', handleUpdated);
-    };
-  }, [fetchDocs, user]);
-
-  const handleDownload = async (id, filename) => {
+  const download = async (id, name) => {
     try {
-      const response = await api.get(`/documents/${id}/download`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (err) {
-      alert("Failed to download document");
-    }
+      const r = await api.get(`/documents/${id}/download`, { responseType: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([r.data]));
+      a.setAttribute('download', name);
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch { alert('Download failed'); }
   };
 
-  const handleRename = async (id, currentTitle) => {
-    const newTitle = window.prompt('Enter a new title for this document', currentTitle);
-    if (!newTitle || newTitle.trim() === '') return;
-    try {
-      await api.put(`/documents/${id}`, { title: newTitle.trim() });
-      setDocuments((prev) => prev.map((doc) => doc._id === id ? { ...doc, title: newTitle.trim() } : doc));
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to rename document');
-    }
+  const rename = async (id, cur) => {
+    const t = window.prompt('New title:', cur);
+    if (!t?.trim()) return;
+    try { await api.put(`/documents/${id}`, { title: t.trim() }); setDocs(p => p.map(d => d._id === id ? { ...d, title: t.trim() } : d)); }
+    catch (e) { alert(e.response?.data?.error || 'Failed'); }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this document? This action cannot be undone.')) return;
-    try {
-      await api.delete(`/documents/${id}`);
-      setDocuments((prev) => prev.filter((doc) => doc._id !== id));
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete document');
-    }
+  const del = async (id) => {
+    if (!window.confirm('Delete this document?')) return;
+    try { await api.delete(`/documents/${id}`); setDocs(p => p.filter(d => d._id !== id)); }
+    catch (e) { alert(e.response?.data?.error || 'Failed'); }
   };
+
+  const isOwner = doc => {
+    const uid = user?._id || user?.id;
+    return user?.role === 'admin' || (doc?.uploadedBy?._id ?? doc?.uploadedBy) === uid;
+  };
+
+  const filtered = docs.filter(d =>
+    d.title?.toLowerCase().includes(search.toLowerCase()) ||
+    d.originalName?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const COLS = '2fr 1fr 1fr 1fr 1fr 100px';
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex justify-between items-end mb-8">
+    <div style={{ maxWidth: 1100, margin: '0 auto', fontFamily: font }}>
+      {/* Top bar */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Documents Repository</h1>
-          <p className="text-slate-500 mt-1">Manage and access your distributed files.</p>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', margin: 0 }}>Documents</h2>
+          <p style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>{docs.length} file{docs.length !== 1 ? 's' : ''} stored</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, background: '#141c28', border: '1px solid rgba(255,255,255,0.07)' }}>
+          <Search size={13} color="#64748b" />
+          <input type="text" placeholder="Filter…" value={search} onChange={e => setSearch(e.target.value)}
+            style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: 13, color: '#94a3b8', width: 150, fontFamily: font }} />
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
-              <tr>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Document</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Primary Node</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Visibility</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Replication</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Size</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Date</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {documents.map((doc) => (
-                <tr key={doc._id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-                        <FileText size={20} />
-                      </div>
-                      <div>
-                        <p className="font-bold text-slate-800">{doc.title}</p>
-                        <p className="text-xs text-slate-500">{doc.originalName}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 font-medium text-slate-700">{doc.primaryNode}</td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold ${doc.visibility === 'shared' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-700 border border-slate-200'}`}>
-                      {doc.visibility}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <StatusBadge status={doc.replicationStatus} />
-                  </td>
-                  <td className="px-6 py-4 text-slate-500">{(doc.size / 1024 / 1024).toFixed(2)} MB</td>
-                  <td className="px-6 py-4 text-slate-500">
-                    {new Date(doc.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
-                    <button 
-                      onClick={() => handleDownload(doc._id, doc.originalName)}
-                      className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors inline-flex"
-                    >
-                      <Download size={18} />
-                    </button>
-                    {(user?.role === 'admin' || (doc.uploadedBy?._id ? doc.uploadedBy._id : doc.uploadedBy) === (user?._id || user?.id)) && (
-                      <>
-                        <button
-                          onClick={() => handleRename(doc._id, doc.title)}
-                          className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors inline-flex"
-                        >
-                          <Edit3 size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(doc._id)}
-                          className="p-2 text-rose-500 hover:text-white hover:bg-rose-500 rounded-lg transition-colors inline-flex"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Table */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={card}>
+        {/* Header */}
+        <div style={{ display: 'grid', gridTemplateColumns: COLS, padding: '12px 20px', background: '#141c28', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {['NAME','NODE','VISIBILITY','STATUS','SIZE','ACTIONS'].map((h, i) => (
+            <span key={h} style={{ fontSize: 10, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', textAlign: i === 5 ? 'right' : 'left' }}>{h}</span>
+          ))}
         </div>
-      </div>
+
+        {/* Rows */}
+        {loading ? (
+          <div style={{ padding: '48px 20px', textAlign: 'center', color: '#64748b', fontSize: 13 }}>Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: '48px 20px', textAlign: 'center', color: '#64748b', fontSize: 13 }}>No documents found.</div>
+        ) : filtered.map((doc, i) => (
+          <motion.div key={doc._id}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
+            style={{ display: 'grid', gridTemplateColumns: COLS, padding: '14px 20px', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'default', transition: 'background 0.15s ease' }}
+            onMouseEnter={e => e.currentTarget.style.background = '#141c28'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            {/* Name */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(59,130,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <FileText size={15} color="#3b82f6" />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 500, color: '#f1f5f9', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title}</p>
+                <p style={{ fontSize: 11, color: '#64748b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.originalName}</p>
+              </div>
+            </div>
+            {/* Node */}
+            <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>{doc.primaryNode}</span>
+            {/* Visibility */}
+            <span style={{ display: 'inline-flex' }}>
+              <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, background: doc.visibility === 'shared' ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)', color: doc.visibility === 'shared' ? '#10b981' : '#94a3b8', fontWeight: 500 }}>
+                {doc.visibility}
+              </span>
+            </span>
+            {/* Status */}
+            <Badge status={doc.replicationStatus} />
+            {/* Size */}
+            <span style={{ fontSize: 12, color: '#64748b' }}>{(doc.size / 1024 / 1024).toFixed(2)} MB</span>
+            {/* Actions */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+              {[
+                { I: Download, fn: () => download(doc._id, doc.originalName), always: true,        hc: '#3b82f6' },
+                { I: Edit3,    fn: () => rename(doc._id, doc.title),          always: isOwner(doc), hc: '#f1f5f9' },
+                { I: Trash2,   fn: () => del(doc._id),                        always: isOwner(doc), hc: '#f43f5e' },
+              ].filter(b => b.always).map(({ I, fn, hc }, j) => (
+                <button key={j} onClick={fn}
+                  style={{ padding: 6, borderRadius: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', transition: 'all 0.15s ease' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = hc; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = 'transparent'; }}>
+                  <I size={14} />
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
     </div>
   );
 }

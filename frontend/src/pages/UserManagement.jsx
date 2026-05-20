@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Trash2, ShieldCheck, ShieldOff } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Trash2, ShieldCheck, ShieldOff, XCircle } from 'lucide-react';
 import api from '../services/api';
 import { getSocket } from '../services/socket';
 
@@ -9,136 +10,139 @@ export default function UserManagement() {
   const [error, setError] = useState('');
   const [user, setUser] = useState(null);
 
+  const fetchUsers = async () => {
+    try { setLoading(true); const r = await api.get('/users'); setUsers(r.data.data); }
+    catch (e) { setError(e.response?.data?.error || 'Failed to load users'); }
+    finally { setLoading(false); }
+  };
+
   useEffect(() => {
-    const storedUser = JSON.parse(localStorage.getItem('user') || 'null');
-    setUser(storedUser);
-    if (storedUser?.role === 'admin') {
+    const u = JSON.parse(localStorage.getItem('user') || 'null');
+    setUser(u);
+    if (u?.role === 'admin') {
       fetchUsers();
-
-      const socket = getSocket();
-      const refreshUsers = () => fetchUsers();
-      socket.on('user:roleUpdated', refreshUsers);
-      socket.on('user:deleted', refreshUsers);
-
-      return () => {
-        socket.off('user:roleUpdated', refreshUsers);
-        socket.off('user:deleted', refreshUsers);
-      };
-    } else {
-      setLoading(false);
-    }
+      const s = getSocket();
+      s.on('user:roleUpdated', fetchUsers);
+      s.on('user:deleted', fetchUsers);
+      return () => { s.off('user:roleUpdated', fetchUsers); s.off('user:deleted', fetchUsers); };
+    } else { setLoading(false); }
   }, []);
 
-  const fetchUsers = async () => {
+  const updateRole = async (uid, role) => {
     try {
-      setLoading(true);
-      const res = await api.get('/users');
-      setUsers(res.data.data);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to load users');
-    } finally {
-      setLoading(false);
-    }
+      const r = await api.put(`/users/${uid}/role`, { role });
+      setUsers(p => p.map(u => u._id === uid ? { ...u, role: r.data.data.role } : u));
+    } catch (e) { setError(e.response?.data?.error || 'Failed'); }
   };
 
-  const updateRole = async (userId, role) => {
-    try {
-      const res = await api.put(`/users/${userId}/role`, { role });
-      const updatedUser = res.data.data;
-      setUsers((prev) => prev.map((u) => (u._id === userId ? { ...u, role: updatedUser.role } : u)));
-      await fetchUsers();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Failed to update user role');
-    }
-  };
-
-  const deleteUser = async (userId) => {
-    if (!window.confirm('Delete this user account? This cannot be undone.')) return;
-    try {
-      await api.delete(`/users/${userId}`);
-      fetchUsers();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to delete user');
-    }
+  const deleteUser = async (uid) => {
+    if (!window.confirm('Delete this user?')) return;
+    try { await api.delete(`/users/${uid}`); fetchUsers(); }
+    catch (e) { setError(e.response?.data?.error || 'Failed'); }
   };
 
   if (!user || user.role !== 'admin') {
     return (
-      <div className="max-w-4xl mx-auto py-12 px-6 text-center">
-        <h1 className="text-2xl font-bold text-slate-800">Access Denied</h1>
-        <p className="mt-4 text-slate-500">Only admins can manage users in the system.</p>
+      <div className="flex flex-col items-center justify-center h-64 rounded-2xl"
+        style={{ background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+        <XCircle size={28} style={{ color: 'var(--rose)' }} className="mb-3" />
+        <p className="font-semibold" style={{ color: 'var(--text-h)' }}>Access denied</p>
+        <p className="text-sm mt-1" style={{ color: 'var(--text)' }}>Admin privileges required.</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold text-slate-800 tracking-tight">User Management</h1>
-        <p className="text-slate-500">Admins can promote, demote, and remove accounts from the system.</p>
+    <div className="max-w-4xl mx-auto space-y-5">
+      <div>
+        <h2 className="text-xl font-bold" style={{ color: 'var(--text-h)' }}>Users</h2>
+        <p className="text-sm mt-0.5" style={{ color: 'var(--text)' }}>{users.length} accounts registered</p>
       </div>
 
       {error && (
-        <div className="p-4 rounded-2xl bg-rose-50 text-rose-700 border border-rose-200">
-          {error}
+        <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm"
+          style={{ background: 'var(--rose-dim)', color: 'var(--rose)', border: '1px solid rgba(244,63,94,0.2)' }}>
+          <XCircle size={14} />{error}
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
-              <tr>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Name</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Email</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Role</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td colSpan="4" className="px-6 py-8 text-center text-slate-500">Loading users...</td>
-                </tr>
-              ) : users.length === 0 ? (
-                <tr>
-                  <td colSpan="4" className="px-6 py-8 text-center text-slate-500">No users found.</td>
-                </tr>
-              ) : (
-                users.map((managedUser) => (
-                  <tr key={managedUser._id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 font-medium text-slate-700">{managedUser.name}</td>
-                    <td className="px-6 py-4 text-slate-500">{managedUser.email}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${managedUser.role === 'admin' ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'bg-slate-50 text-slate-700 border border-slate-200'}`}>
-                        {managedUser.role}
-                      </span>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+        className="rounded-2xl overflow-hidden"
+        style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+        <table className="w-full text-left">
+          <thead>
+            <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+              {['User', 'Email', 'Role', 'Actions'].map((h, i) => (
+                <th key={h} className={`px-5 py-3 text-xs font-medium uppercase tracking-wider ${i===3?'text-right':''}`}
+                  style={{ color: 'var(--text)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              [0,1,2].map(i => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                  {[0,1,2,3].map(j => (
+                    <td key={j} className="px-5 py-4">
+                      <div className="h-3 rounded-lg animate-pulse" style={{ background: 'var(--surface-2)', width: j===3?60:'70%' }} />
                     </td>
-                    <td className="px-6 py-4 text-right space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => updateRole(managedUser._id, managedUser.role === 'admin' ? 'user' : 'admin')}
-                        className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-                      >
-                        {user.role === 'admin' ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
-                        {user.role === 'admin' ? 'Demote' : 'Promote'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteUser(user._id)}
-                        className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 transition-colors"
-                      >
-                        <Trash2 size={16} />
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  ))}
+                </tr>
+              ))
+            ) : users.length === 0 ? (
+              <tr><td colSpan={4} className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text)' }}>No users found.</td></tr>
+            ) : users.map((u, i) => (
+              <motion.tr key={u._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}
+                style={{ borderBottom: '1px solid var(--border)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--surface)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                {/* Name */}
+                <td className="px-5 py-3.5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+                      style={{ background: 'var(--accent-dim)', color: 'var(--accent)', border: '1px solid var(--accent-border)' }}>
+                      {u.name?.[0]?.toUpperCase()}
+                    </div>
+                    <span className="font-medium text-sm" style={{ color: 'var(--text-h)' }}>{u.name}</span>
+                  </div>
+                </td>
+                {/* Email */}
+                <td className="px-5 py-3.5 text-sm" style={{ color: 'var(--text)' }}>{u.email}</td>
+                {/* Role */}
+                <td className="px-5 py-3.5">
+                  <span className="px-2.5 py-1 rounded-lg text-xs font-medium"
+                    style={{
+                      background: u.role === 'admin' ? 'var(--accent-dim)' : 'var(--surface-2)',
+                      color: u.role === 'admin' ? 'var(--accent)' : 'var(--text-2)',
+                    }}>
+                    {u.role}
+                  </span>
+                </td>
+                {/* Actions */}
+                <td className="px-5 py-3.5">
+                  <div className="flex items-center justify-end gap-2">
+                    <button type="button" onClick={() => updateRole(u._id, u.role === 'admin' ? 'user' : 'admin')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                      style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border)' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; }}>
+                      {u.role === 'admin' ? <ShieldOff size={12} /> : <ShieldCheck size={12} />}
+                      {u.role === 'admin' ? 'Demote' : 'Promote'}
+                    </button>
+                    <button type="button" onClick={() => deleteUser(u._id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                      style={{ background: 'var(--rose-dim)', color: 'var(--rose)', border: '1px solid rgba(244,63,94,0.2)' }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
+                      onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  </div>
+                </td>
+              </motion.tr>
+            ))}
+          </tbody>
+        </table>
+      </motion.div>
     </div>
   );
 }

@@ -1,172 +1,139 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { UploadCloud, File, CheckCircle2, X } from 'lucide-react';
-import api, { uploadDocument } from '../services/api';
-import { cn } from '../utils/cn';
+import { motion, AnimatePresence } from 'framer-motion';
+import { UploadCloud, File, CheckCircle2, X, AlertCircle, Lock, Globe } from 'lucide-react';
+import { uploadDocument } from '../services/api';
+
+const font = "'Inter', sans-serif";
+const card = { background: '#0F1623', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 28, boxShadow: '0 4px 24px rgba(0,0,0,0.25)' };
 
 export default function UploadCenter() {
-  const [dragActive, setDragActive] = useState(false);
+  const [drag, setDrag] = useState(false);
   const [file, setFile] = useState(null);
   const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState('idle'); // idle, uploading, success, error
-  const [metadata, setMetadata] = useState({ title: '', description: '', visibility: 'private' });
+  const [status, setStatus] = useState('idle');
+  const [meta, setMeta] = useState({ title: '', visibility: 'private' });
 
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
-    else if (e.type === "dragleave") setDragActive(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleUpload = async () => {
+  const onDrag = e => { e.preventDefault(); e.stopPropagation(); setDrag(e.type === 'dragenter' || e.type === 'dragover'); };
+  const onDrop = e => { e.preventDefault(); e.stopPropagation(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) { setFile(f); setStatus('idle'); } };
+  const upload = async () => {
     if (!file) return;
-    setStatus('uploading');
-    setProgress(0);
-
-    try {
-      await uploadDocument(file, metadata, (percent) => {
-        setProgress(percent);
-      });
-      setStatus('success');
-    } catch (err) {
-      console.error(err);
-      setStatus('error');
-    }
+    setStatus('uploading'); setProgress(0);
+    try { await uploadDocument(file, meta, p => setProgress(p)); setStatus('success'); }
+    catch { setStatus('error'); }
   };
+  const reset = () => { setFile(null); setStatus('idle'); setProgress(0); };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Upload Center</h1>
-        <p className="text-slate-500 mt-1">Upload documents to the distributed network securely.</p>
-      </div>
+    <div style={{ maxWidth: 560, margin: '0 auto', fontFamily: font }}>
+      <h2 style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', margin: '0 0 6px 0' }}>Upload</h2>
+      <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 24px 0' }}>Push a document to the distributed network</p>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-8">
-          
-          <div className="space-y-4 mb-8">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Document Title</label>
-              <input 
-                type="text" 
-                value={metadata.title}
-                onChange={e => setMetadata({...metadata, title: e.target.value})}
-                placeholder="E.g., Distributed Systems Assignment 1"
-                className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Visibility</label>
-              <select
-                value={metadata.visibility}
-                onChange={e => setMetadata({...metadata, visibility: e.target.value})}
-                className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-              >
-                <option value="private">Private (only you and admins)</option>
-                <option value="shared">Shared (all logged-in users)</option>
-              </select>
-            </div>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={card}>
+        {/* Title */}
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#94a3b8', marginBottom: 8 }}>Document title</label>
+          <input type="text" value={meta.title} onChange={e => setMeta(m => ({ ...m, title: e.target.value }))}
+            placeholder="E.g. Distributed Systems Assignment"
+            style={{ width: '100%', padding: '11px 14px', borderRadius: 10, background: '#141c28', border: '1px solid rgba(255,255,255,0.07)', color: '#f1f5f9', fontSize: 13, fontFamily: font, outline: 'none', boxSizing: 'border-box', transition: 'border-color 0.15s ease' }}
+            onFocus={e => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.12)'; }}
+            onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.07)'; e.target.style.boxShadow = 'none'; }}
+          />
+        </div>
+
+        {/* Visibility */}
+        <div style={{ marginBottom: 22 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#94a3b8', marginBottom: 8 }}>Visibility</label>
+          <div style={{ display: 'flex', gap: 6, padding: 4, borderRadius: 11, background: '#141c28', border: '1px solid rgba(255,255,255,0.07)' }}>
+            {[{ value: 'private', label: 'Private', Icon: Lock }, { value: 'shared', label: 'Shared', Icon: Globe }].map(({ value, label, Icon }) => {
+              const active = meta.visibility === value;
+              return (
+                <button key={value} type="button" onClick={() => setMeta(m => ({ ...m, visibility: value }))}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 0', borderRadius: 8, border: active ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent', background: active ? '#1a2336' : 'transparent', color: active ? '#f1f5f9' : '#64748b', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: font, transition: 'all 0.15s ease' }}>
+                  <Icon size={13} color={active ? '#3b82f6' : 'currentColor'} />{label}
+                </button>
+              );
+            })}
           </div>
+        </div>
 
-          <div 
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-            className={cn(
-              "border-2 border-dashed rounded-2xl p-12 text-center transition-all duration-200",
-              dragActive ? "border-indigo-500 bg-indigo-50" : "border-slate-300 hover:border-indigo-400 bg-slate-50/50",
-              file && "border-emerald-500 bg-emerald-50"
-            )}
-          >
+        {/* Drop zone */}
+        <div onDragEnter={onDrag} onDragLeave={onDrag} onDragOver={onDrag} onDrop={onDrop}
+          style={{ minHeight: 200, borderRadius: 12, border: `2px dashed ${drag ? '#3b82f6' : file ? '#10b981' : 'rgba(255,255,255,0.12)'}`, background: drag ? 'rgba(59,130,246,0.07)' : file ? 'rgba(16,185,129,0.07)' : '#141c28', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease', marginBottom: 20, boxShadow: drag ? '0 0 0 4px rgba(59,130,246,0.1)' : 'none' }}>
+          <AnimatePresence mode="wait">
             {file ? (
-              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="flex flex-col items-center">
-                <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4">
-                  <File size={32} />
+              <motion.div key="file" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 20px' }}>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                  <File size={22} color="#10b981" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-800">{file.name}</h3>
-                <p className="text-sm text-slate-500 mt-1">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                <button 
-                  onClick={() => { setFile(null); setStatus('idle'); }}
-                  className="mt-4 text-sm text-rose-500 font-medium hover:text-rose-600 flex items-center"
-                >
-                  <X size={16} className="mr-1" /> Remove File
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9', margin: '0 0 4px 0' }}>{file.name}</p>
+                <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 14px 0' }}>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                <button onClick={reset} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#f43f5e', background: 'none', border: 'none', cursor: 'pointer', fontFamily: font }}>
+                  <X size={12} /> Remove
                 </button>
               </motion.div>
             ) : (
-              <div className="flex flex-col items-center pointer-events-none">
-                <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-4">
-                  <UploadCloud size={32} />
+              <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 20px' }}>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(59,130,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                  <UploadCloud size={22} color="#3b82f6" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-800">Drag & Drop your file here</h3>
-                <p className="text-sm text-slate-500 mt-1">or click to browse from your computer</p>
-                <input 
-                  type="file" 
-                  className="hidden" 
-                  id="file-upload" 
-                  onChange={(e) => e.target.files && setFile(e.target.files[0])}
-                />
-                <label 
-                  htmlFor="file-upload" 
-                  className="mt-6 px-6 py-2 bg-white border border-slate-200 text-slate-700 rounded-full font-medium hover:bg-slate-50 cursor-pointer pointer-events-auto transition-colors shadow-sm"
-                >
-                  Browse Files
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9', margin: '0 0 4px 0' }}>Drag & drop your file here</p>
+                <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 16px 0' }}>or click to browse from your computer</p>
+                <input type="file" id="fu" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setStatus('idle'); } }} />
+                <label htmlFor="fu" style={{ padding: '8px 18px', borderRadius: 9, background: '#1a2336', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: font, transition: 'border-color 0.15s ease' }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = '#3b82f6'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}>
+                  Browse files
                 </label>
-              </div>
+              </motion.div>
             )}
-          </div>
+          </AnimatePresence>
+        </div>
 
+        {/* Progress / feedback */}
+        <AnimatePresence>
           {status === 'uploading' && (
-            <div className="mt-8">
-              <div className="flex justify-between text-sm font-medium mb-2">
-                <span className="text-slate-700">Uploading to Gateway...</span>
-                <span className="text-indigo-600">{progress}%</span>
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 8 }}>
+                <span style={{ color: '#94a3b8' }}>Uploading…</span>
+                <span style={{ color: '#3b82f6', fontWeight: 600 }}>{progress}%</span>
               </div>
-              <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
-                <motion.div 
-                  className="h-full bg-indigo-500 rounded-full"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progress}%` }}
-                  transition={{ duration: 0.1 }}
-                />
-              </div>
-            </div>
-          )}
-
-          {status === 'success' && (
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-              className="mt-8 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center text-emerald-800"
-            >
-              <CheckCircle2 className="text-emerald-500 mr-3" />
-              <div>
-                <p className="font-bold">Upload Successful</p>
-                <p className="text-sm text-emerald-600/80">File is being replicated across nodes.</p>
+              <div style={{ height: 4, borderRadius: 2, background: '#1a2336', overflow: 'hidden' }}>
+                <motion.div style={{ height: '100%', background: '#3b82f6', borderRadius: 2 }}
+                  initial={{ width: 0 }} animate={{ width: `${progress}%` }} transition={{ duration: 0.15 }} />
               </div>
             </motion.div>
           )}
+          {status === 'success' && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 10, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', marginBottom: 16 }}>
+              <CheckCircle2 size={15} color="#10b981" />
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#10b981', margin: 0 }}>Upload successful</p>
+                <p style={{ fontSize: 11, color: '#64748b', margin: 0 }}>Being replicated across nodes.</p>
+              </div>
+            </motion.div>
+          )}
+          {status === 'error' && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderRadius: 10, background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.2)', color: '#f43f5e', fontSize: 13, marginBottom: 16 }}>
+              <AlertCircle size={15} /> Upload failed. Please try again.
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-          <div className="mt-8 flex justify-end">
-            <button 
-              onClick={handleUpload}
-              disabled={!file || status === 'uploading' || status === 'success'}
-              className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-            >
-              Start Upload
-            </button>
-          </div>
-
+        {/* Submit */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={upload} disabled={!file || status === 'uploading' || status === 'success'}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 22px', borderRadius: 10, background: '#3b82f6', color: 'white', fontWeight: 600, fontSize: 13, border: 'none', cursor: (!file || status !== 'idle') ? 'not-allowed' : 'pointer', opacity: (!file || status !== 'idle') ? 0.45 : 1, boxShadow: '0 0 20px rgba(59,130,246,0.25)', fontFamily: font, transition: 'all 0.15s ease' }}
+            onMouseEnter={e => { if (file && status === 'idle') e.currentTarget.style.background = '#2563eb'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#3b82f6'; }}>
+            <UploadCloud size={15} />
+            {status === 'uploading' ? 'Uploading…' : 'Upload'}
+          </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

@@ -1,142 +1,225 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { KeyRound, Mail, AlertCircle, User } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, HardDrive } from 'lucide-react';
 import api from '../services/api';
+
+const F = {
+  page: {
+    minHeight: '100vh',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#0B0F14',
+    fontFamily: "'Inter', -apple-system, sans-serif",
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  glow: {
+    position: 'absolute',
+    width: 500, height: 500,
+    borderRadius: '50%',
+    background: 'radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%)',
+    top: '50%', left: '50%',
+    transform: 'translate(-50%, -50%)',
+    filter: 'blur(60px)',
+    pointerEvents: 'none',
+  },
+  card: {
+    position: 'relative',
+    width: '100%',
+    maxWidth: 380,
+    margin: '0 16px',
+    padding: 36,
+    borderRadius: 18,
+    background: 'rgba(15,22,35,0.85)',
+    backdropFilter: 'blur(24px)',
+    WebkitBackdropFilter: 'blur(24px)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+  },
+  logoRow: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 },
+  logoIcon: {
+    width: 32, height: 32, borderRadius: 9,
+    background: '#3b82f6',
+    boxShadow: '0 0 20px rgba(59,130,246,0.4)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  logoText: { fontWeight: 600, fontSize: 15, color: '#f1f5f9' },
+  heading: { fontSize: 24, fontWeight: 700, color: '#f1f5f9', marginBottom: 6, lineHeight: 1.2 },
+  sub: { fontSize: 13, color: '#64748b', marginBottom: 28 },
+  toggle: {
+    display: 'flex',
+    borderRadius: 10,
+    padding: 4,
+    background: '#141c28',
+    border: '1px solid rgba(255,255,255,0.07)',
+    marginBottom: 24,
+    gap: 4,
+  },
+  toggleBtn: (active) => ({
+    flex: 1,
+    padding: '8px 0',
+    borderRadius: 7,
+    border: active ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent',
+    background: active ? '#1a2336' : 'transparent',
+    color: active ? '#f1f5f9' : '#64748b',
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: "'Inter', sans-serif",
+    transition: 'all 0.15s ease',
+  }),
+  fieldWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '12px 14px',
+    borderRadius: 10,
+    background: '#141c28',
+    border: '1px solid rgba(255,255,255,0.07)',
+    marginBottom: 10,
+    transition: 'border-color 0.15s ease',
+  },
+  fieldInput: {
+    flex: 1,
+    background: 'transparent',
+    border: 'none',
+    outline: 'none',
+    fontSize: 13,
+    color: '#f1f5f9',
+    fontFamily: "'Inter', sans-serif",
+  },
+  errorBox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '10px 14px',
+    borderRadius: 10,
+    background: 'rgba(244,63,94,0.1)',
+    border: '1px solid rgba(244,63,94,0.25)',
+    color: '#f43f5e',
+    fontSize: 12,
+    marginBottom: 16,
+  },
+  submitBtn: (loading) => ({
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: '13px 0',
+    borderRadius: 10,
+    background: '#3b82f6',
+    color: 'white',
+    fontWeight: 600,
+    fontSize: 14,
+    border: 'none',
+    cursor: loading ? 'not-allowed' : 'pointer',
+    opacity: loading ? 0.7 : 1,
+    boxShadow: '0 0 24px rgba(59,130,246,0.3)',
+    fontFamily: "'Inter', sans-serif",
+    transition: 'all 0.15s ease',
+    marginTop: 6,
+  }),
+  switchText: { textAlign: 'center', fontSize: 13, color: '#64748b', marginTop: 20 },
+  switchLink: { color: '#3b82f6', cursor: 'pointer', fontWeight: 500, background: 'none', border: 'none', fontFamily: "'Inter', sans-serif", fontSize: 13 },
+};
+
+function Field({ icon: Icon, type, placeholder, value, onChange, required }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ ...F.fieldWrap, borderColor: focused ? '#3b82f6' : 'rgba(255,255,255,0.07)', boxShadow: focused ? '0 0 0 3px rgba(59,130,246,0.12)' : 'none' }}>
+      <Icon size={15} color={focused ? '#3b82f6' : '#64748b'} />
+      <input type={type} placeholder={placeholder} value={value} onChange={onChange} required={required}
+        style={F.fieldInput} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} />
+    </div>
+  );
+}
 
 export default function Login() {
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
+  const submit = async e => {
+    e.preventDefault(); setError(''); setLoading(true);
     try {
-      if (isLogin) {
-        const res = await api.post('/auth/login', { email: formData.email, password: formData.password });
-        localStorage.setItem('token', res.data.token);
-        localStorage.setItem('user', JSON.stringify(res.data.user));
-        navigate('/');
-      } else {
-        const res = await api.post('/auth/register', { 
-          name: formData.name, 
-          email: formData.email, 
-          password: formData.password
-        });
-        localStorage.setItem('token', res.data.token);
-        localStorage.setItem('user', JSON.stringify(res.data.user));
-        navigate('/');
-      }
-    } catch (err) {
-      setError(err.response?.data?.error || 'Authentication failed');
-    } finally {
-      setLoading(false);
-    }
+      const res = await api.post(isLogin ? '/auth/login' : '/auth/register',
+        isLogin ? { email: form.email, password: form.password }
+                : { name: form.name, email: form.email, password: form.password });
+      localStorage.setItem('token', res.data.token);
+      localStorage.setItem('user', JSON.stringify(res.data.user));
+      navigate('/');
+    } catch (err) { setError(err.response?.data?.error || 'Authentication failed'); }
+    finally { setLoading(false); }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center">
-          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
-            <KeyRound className="text-white" size={32} />
+    <div style={F.page}>
+      <div style={F.glow} />
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: 'easeOut' }}>
+        <div style={F.card}>
+          {/* Logo */}
+          <div style={F.logoRow}>
+            <div style={F.logoIcon}><HardDrive size={16} color="white" /></div>
+            <span style={F.logoText}>DistriDoc</span>
           </div>
-        </div>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900">
-          {isLogin ? 'Sign in to DistriDoc' : 'Create an Account'}
-        </h2>
-      </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow-xl shadow-slate-200/50 sm:rounded-2xl sm:px-10 border border-slate-100">
-          
-          {error && (
-            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-3 text-rose-700 text-sm font-medium">
-              <AlertCircle size={18} className="text-rose-500" />
-              {error}
-            </motion.div>
-          )}
+          <h2 style={F.heading}>{isLogin ? 'Welcome back' : 'Create account'}</h2>
+          <p style={F.sub}>{isLogin ? 'Sign in to your workspace' : 'Get started with DistriDoc'}</p>
 
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            {!isLogin && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700">Full Name</label>
-                <div className="mt-1 relative rounded-xl shadow-sm">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <User className="text-slate-400" size={18} />
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                    placeholder="John Doe"
-                    value={formData.name}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  />
-                </div>
-              </div>
+          {/* Toggle */}
+          <div style={F.toggle}>
+            {['Sign In', 'Register'].map((label, i) => (
+              <button key={label} type="button" style={F.toggleBtn(isLogin ? i === 0 : i === 1)}
+                onClick={() => { setIsLogin(i === 0); setError(''); }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Error */}
+          <AnimatePresence>
+            {error && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                <div style={F.errorBox}><AlertCircle size={14} />{error}</div>
+              </motion.div>
             )}
+          </AnimatePresence>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Email address</label>
-              <div className="mt-1 relative rounded-xl shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="text-slate-400" size={18} />
-                </div>
-                <input
-                  type="email"
-                  required
-                  className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                  placeholder="admin@distridoc.com"
-                  value={formData.email}
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Password</label>
-              <div className="mt-1 relative rounded-xl shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <KeyRound className="text-slate-400" size={18} />
-                </div>
-                <input
-                  type="password"
-                  required
-                  className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all disabled:opacity-50"
-            >
-              {loading ? 'Authenticating...' : isLogin ? 'Sign In' : 'Create Account'}
+          <form onSubmit={submit}>
+            <AnimatePresence>
+              {!isLogin && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                  <Field icon={User} type="text" placeholder="Full name" value={form.name} onChange={set('name')} required />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <Field icon={Mail} type="email" placeholder="Email address" value={form.email} onChange={set('email')} required />
+            <Field icon={Lock} type="password" placeholder="Password" value={form.password} onChange={set('password')} required />
+            <button type="submit" disabled={loading} style={F.submitBtn(loading)}
+              onMouseEnter={e => { if (!loading) e.currentTarget.style.background = '#2563eb'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = '#3b82f6'; }}>
+              {loading
+                ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Signing in…</>
+                : <>{isLogin ? 'Sign in' : 'Create account'} <ArrowRight size={15} /></>
+              }
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
-            >
-              {isLogin ? "Don't have an account? Register" : "Already have an account? Sign in"}
+          <p style={F.switchText}>
+            {isLogin ? "Don't have an account? " : 'Already have an account? '}
+            <button type="button" style={F.switchLink} onClick={() => { setIsLogin(!isLogin); setError(''); }}>
+              {isLogin ? 'Register' : 'Sign in'}
             </button>
-          </div>
-
+          </p>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

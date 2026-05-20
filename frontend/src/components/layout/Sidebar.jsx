@@ -1,83 +1,158 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { 
-  LayoutDashboard, 
-  HardDrive, 
-  UploadCloud, 
-  Files, 
-  Settings 
-} from 'lucide-react';
-import { cn } from '../../utils/cn';
+import { LayoutDashboard, UploadCloud, Files, Cpu, Users, HardDrive } from 'lucide-react';
 
-const navItems = [
-  { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
-  { name: 'Upload Center', icon: UploadCloud, path: '/upload' },
-  { name: 'Documents', icon: Files, path: '/documents' },
+const nav   = [
+  { label: 'Overview',  icon: LayoutDashboard, to: '/'          },
+  { label: 'Upload',    icon: UploadCloud,     to: '/upload'    },
+  { label: 'Documents', icon: Files,           to: '/documents' },
+];
+const admin = [
+  { label: 'Nodes',     icon: Cpu,   to: '/nodes' },
+  { label: 'Users',     icon: Users, to: '/users' },
 ];
 
-const adminItems = [
-  { name: 'Node Monitor', icon: HardDrive, path: '/nodes' },
-  { name: 'User Management', icon: Settings, path: '/users' },
-];
+const S = {
+  aside: {
+    width: 220,
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    padding: '20px 12px',
+    background: '#0F1623',
+    borderRight: '1px solid rgba(255,255,255,0.07)',
+    height: '100vh',
+    overflowY: 'auto',
+  },
+  logo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '0 8px',
+    marginBottom: 28,
+  },
+  logoIcon: {
+    width: 28, height: 28,
+    borderRadius: 8,
+    background: '#3b82f6',
+    boxShadow: '0 0 16px rgba(59,130,246,0.35)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  logoText: {
+    fontFamily: "'Inter', sans-serif",
+    fontWeight: 600,
+    fontSize: 14,
+    color: '#f1f5f9',
+  },
+  sectionLabel: {
+    padding: '0 8px',
+    fontSize: 10,
+    fontWeight: 500,
+    textTransform: 'uppercase',
+    letterSpacing: '0.1em',
+    color: '#64748b',
+    marginBottom: 6,
+    fontFamily: "'Inter', sans-serif",
+  },
+  divider: {
+    height: 1,
+    background: 'rgba(255,255,255,0.07)',
+    margin: '16px 8px',
+  },
+  statusBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '10px 12px',
+    borderRadius: 10,
+    background: '#141c28',
+    marginTop: 'auto',
+  },
+  statusDot: {
+    width: 7, height: 7,
+    borderRadius: '50%',
+    background: '#10b981',
+    boxShadow: '0 0 6px #10b981',
+    flexShrink: 0,
+  },
+  statusText: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontFamily: "'Inter', sans-serif",
+  },
+};
+
+function Item({ item }) {
+  return (
+    <NavLink
+      to={item.to}
+      end={item.to === '/'}
+      style={{ textDecoration: 'none', display: 'block', marginBottom: 2 }}
+    >
+      {({ isActive }) => (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '9px 12px',
+          borderRadius: 10,
+          background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent',
+          border: isActive ? '1px solid rgba(59,130,246,0.25)' : '1px solid transparent',
+          color: isActive ? '#f1f5f9' : '#94a3b8',
+          fontSize: 13,
+          fontWeight: isActive ? 500 : 400,
+          fontFamily: "'Inter', sans-serif",
+          cursor: 'pointer',
+          transition: 'all 0.15s ease',
+        }}
+        onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#f1f5f9'; }}}
+        onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#94a3b8'; }}}
+        >
+          <item.icon size={15} color={isActive ? '#3b82f6' : 'currentColor'} />
+          {item.label}
+        </div>
+      )}
+    </NavLink>
+  );
+}
 
 export default function Sidebar() {
   let user = null;
-  try {
-    user = JSON.parse(localStorage.getItem('user') || 'null');
-  } catch (err) {
-    user = null;
-  }
-
-  const items = [...navItems, ...(user && user.role === 'admin' ? adminItems : [])];
+  try { user = JSON.parse(localStorage.getItem('user') || 'null'); } catch {}
 
   return (
-    <motion.aside 
-      initial={{ x: -250 }}
+    <motion.aside
+      initial={{ x: -220 }}
       animate={{ x: 0 }}
-      className="w-64 h-screen bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col"
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      style={S.aside}
     >
-      <div className="h-16 flex items-center px-6 border-b border-slate-800">
-        <div className="flex items-center gap-3 text-white font-bold text-lg tracking-tight">
-          <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center">
-            <HardDrive size={18} className="text-white" />
-          </div>
-          DistriDoc
-        </div>
+      {/* Logo */}
+      <div style={S.logo}>
+        <div style={S.logoIcon}><HardDrive size={14} color="white" /></div>
+        <span style={S.logoText}>DistriDoc</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1 text-sm font-medium">
-        <div className="px-2 mb-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          Main Menu
-        </div>
-        {items.map((item) => (
-          <NavLink
-            key={item.name}
-            to={item.path}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
-                isActive 
-                  ? "bg-indigo-500/10 text-indigo-400" 
-                  : "hover:bg-slate-800 hover:text-white"
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <item.icon size={18} className={isActive ? "text-indigo-400" : "text-slate-400"} />
-                {item.name}
-              </>
-            )}
-          </NavLink>
-        ))}
+      {/* Nav */}
+      <div style={{ flex: 1 }}>
+        <p style={S.sectionLabel}>Menu</p>
+        {nav.map(i => <Item key={i.to} item={i} />)}
+
+        {user?.role === 'admin' && (
+          <>
+            <div style={S.divider} />
+            <p style={S.sectionLabel}>Admin</p>
+            {admin.map(i => <Item key={i.to} item={i} />)}
+          </>
+        )}
       </div>
 
-      <div className="p-4 border-t border-slate-800">
-        <button className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium">
-          <Settings size={18} className="text-slate-400" />
-          Settings
-        </button>
+      {/* Status */}
+      <div style={S.statusBar}>
+        <span style={S.statusDot} />
+        <span style={S.statusText}>All systems online</span>
       </div>
     </motion.aside>
   );

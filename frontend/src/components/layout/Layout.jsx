@@ -5,11 +5,23 @@ import Header from './Header';
 
 export default function Layout() {
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden text-slate-900">
+    <div style={{
+      display: 'flex',
+      height: '100vh',
+      width: '100%',
+      overflow: 'hidden',
+      background: '#0B0F14',
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+    }}>
       <Sidebar />
-      <div className="flex-1 flex flex-col relative overflow-hidden">
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
         <Header />
-        <main className="flex-1 overflow-y-auto p-8">
+        <main style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '32px',
+          background: '#0B0F14',
+        }}>
           <Outlet />
         </main>
       </div>
