@@ -57,7 +57,10 @@ class Replicator {
           formData.append('fileId', task.fileId); 
 
           await axios.post(`${task.targetUrl}/api/files/upload`, formData, {
-            headers: { ...formData.getHeaders() },
+            headers: { 
+              ...formData.getHeaders(),
+              'Authorization': `Bearer ${process.env.SERVICE_SECRET}`
+            },
             maxContentLength: Infinity,
             maxBodyLength: Infinity
           });
