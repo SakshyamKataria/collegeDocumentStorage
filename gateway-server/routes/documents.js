@@ -5,6 +5,7 @@ const FormData = require('form-data');
 const { protect } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const Document = require('../models/Document');
+const DailyMetric = require('../models/DailyMetric');
 const nodeManager = require('../services/nodeManager');
 const uploadQueue = require('../services/uploadQueue');
 
@@ -26,6 +27,13 @@ router.post('/upload', protect, upload.single('file'), async (req, res) => {
     // 1. Get next available node (Load Balancing)
     const targetNode = nodeManager.getNextAvailableNode();
 
+    // Dynamically select a secondary replica node if available
+    const activeNodes = nodeManager.getActiveNodes();
+    let replicaNode = null;
+    if (activeNodes.length > 1) {
+      replicaNode = activeNodes.find(n => n.id !== targetNode.id);
+    }
+
     // 2. Pre-create aggregated metadata in the Central Database (Status: Pending)
     const document = await Document.create({
       title: title || req.file.originalname,
@@ -44,12 +52,18 @@ router.post('/upload', protect, upload.single('file'), async (req, res) => {
     formData.append('file', req.file.buffer, { filename: req.file.originalname });
     formData.append('gatewayDocumentId', document._id.toString());
 
+    if (replicaNode) {
+      formData.append('replicaNodeUrl', replicaNode.url);
+      formData.append('replicaNodeId', replicaNode.id);
+    }
+
     // 4. Wrap the network forward in the Upload Queue to handle concurrency 
     // and prevent duplicate writes of the same file by the same user
     const fileMetadata = await uploadQueue.enqueue(req.user.id, req.file.originalname, async () => {
       const nodeResponse = await axios.post(`${targetNode.url}/api/files/upload`, formData, {
         headers: {
           ...formData.getHeaders(),
+          Authorization: `Bearer ${process.env.SERVICE_SECRET}`
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity
@@ -60,6 +74,14 @@ router.post('/upload', protect, upload.single('file'), async (req, res) => {
     // 5. Update Central Database with the actual physical fileId
     document.fileId = fileMetadata.fileId;
     await document.save();
+
+    // 6. Update Daily Metrics
+    const today = new Date().toISOString().split('T')[0];
+    await DailyMetric.findOneAndUpdate(
+      { date: today },
+      { $inc: { totalUploadBytes: req.file.size } },
+      { upsert: true, new: true }
+    ).catch(e => console.error('Failed to update upload metric:', e));
 
     const io = req.app.get('io');
     if (io) {
@@ -191,17 +213,13 @@ router.delete('/:id', protect, async (req, res) => {
       return res.status(403).json({ success: false, error: 'Not authorized to delete this document' });
     }
 
-    const deleteTargets = [document.primaryNode, ...document.replicaNodes];
-    for (const nodeId of Array.from(new Set(deleteTargets))) {
-      const node = nodeManager.getNodeById(nodeId);
-      if (node && node.status === 'online') {
-        try {
-          await axios.delete(`${node.url}/api/files/${document.fileId}`);
-        } catch (err) {
-          console.warn(`Failed to delete file from node ${nodeId}:`, err.message);
-        }
-      }
-    }
+    const { EventBus } = require('../config/redis');
+    const { CHANNELS } = require('../config/events');
+    
+    // Distributed Event-Driven Delete: Publish to EventBus
+    EventBus.publish(CHANNELS.DOCUMENT_DELETED, {
+      fileId: document.fileId
+    });
 
     await document.deleteOne();
 
@@ -266,6 +284,9 @@ router.get('/:id/download', protect, async (req, res) => {
     const response = await axios({
       method: 'GET',
       url: `${node.url}/api/files/${document.fileId}`,
+      headers: {
+        Authorization: `Bearer ${process.env.SERVICE_SECRET}`
+      },
       responseType: 'stream'
     });
 
@@ -273,6 +294,14 @@ router.get('/:id/download', protect, async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${document.originalName}"`);
     
     response.data.pipe(res);
+
+    // Update Daily Metrics
+    const today = new Date().toISOString().split('T')[0];
+    DailyMetric.findOneAndUpdate(
+      { date: today },
+      { $inc: { totalDownloadBytes: document.size } },
+      { upsert: true, new: true }
+    ).catch(e => console.error('Failed to update download metric:', e));
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to download file from node' });
   }

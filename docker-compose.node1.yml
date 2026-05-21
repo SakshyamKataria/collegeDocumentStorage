@@ -1,0 +1,13 @@
+services:
+  storage-node-1:
+    build: ./storage-node-1
+    container_name: distridoc-node-1
+    ports:
+      - "5001:5001"
+    env_file:
+      - .env.node1
+    volumes:
+      - node1-uploads:/app/uploads
+
+volumes:
+  node1-uploads:

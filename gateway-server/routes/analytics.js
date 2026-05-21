@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Document = require('../models/Document');
 const User = require('../models/User');
+const DailyMetric = require('../models/DailyMetric');
 const nodeManager = require('../services/nodeManager');
 const { protect } = require('../middleware/auth');
 
@@ -33,16 +34,24 @@ router.get('/', protect, async (req, res) => {
       }
     }
 
-    const chartData = [
-      { name: 'Mon', uploads: totalDocuments * 2 + 50, downloads: replicatedDocuments * 3 + 30 },
-      { name: 'Tue', uploads: totalDocuments * 2 + 20, downloads: replicatedDocuments * 2 + 50 },
-      { name: 'Wed', uploads: totalDocuments * 3 + 10, downloads: replicatedDocuments * 2 + 80 },
-      { name: 'Thu', uploads: totalDocuments * 2 + 25, downloads: replicatedDocuments * 3 + 40 },
-      { name: 'Fri', uploads: totalDocuments * 2 + 35, downloads: replicatedDocuments * 2 + 60 },
-      { name: 'Sat', uploads: totalDocuments * 3 + 15, downloads: replicatedDocuments * 2 + 45 },
-      { name: 'Sun', uploads: totalDocuments * 2 + 55, downloads: replicatedDocuments * 3 + 35 },
-      { name: 'Now', uploads: totalDocuments * 5 + 70, downloads: replicatedDocuments * 4 + 90 }
-    ];
+    // Fetch last 7 days of real network metrics
+    const metrics = await DailyMetric.find().sort({ date: -1 }).limit(7);
+    metrics.reverse(); // oldest to newest
+    
+    const chartData = metrics.map(m => {
+      const dateObj = new Date(m.date);
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return {
+        name: days[dateObj.getUTCDay()],
+        uploads: Math.round(m.totalUploadBytes / 1024), // Show in KB
+        downloads: Math.round(m.totalDownloadBytes / 1024)
+      };
+    });
+
+    // Pad if there isn't enough historical data yet
+    while (chartData.length < 7) {
+      chartData.unshift({ name: '—', uploads: 0, downloads: 0 });
+    }
 
     const responseData = {
       totalDocuments,

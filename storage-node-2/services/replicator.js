@@ -1,68 +1,100 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
-const path = require('path');
-const { getPublisher } = require('../config/redis');
-
-const PEER_NODE_URL = process.env.PEER_NODE_URL; 
-const NODE_ID = process.env.NODE_ID;
+const { EventBus } = require('../config/redis');
+const { CHANNELS } = require('../config/events');
+const ReplicationTask = require('../models/ReplicationTask');
 
 class Replicator {
-  async replicateFile(localMetadata, gatewayDocumentId) {
-    if (!PEER_NODE_URL) {
-      console.log('No peer node configured. Skipping replication.');
-      return;
-    }
-
-    if (!gatewayDocumentId) {
-      console.log('No gatewayDocumentId provided. Skipping replication callback.');
+  async replicateFile(localMetadata, gatewayDocumentId, replicaNodeUrl, replicaNodeId) {
+    if (!replicaNodeUrl || !replicaNodeId) {
+      console.log('No peer node provided dynamically. Skipping replication.');
       return;
     }
 
     try {
-      console.log(`[Replication] Starting replication for ${localMetadata.originalName} to ${PEER_NODE_URL}`);
-
-      // 1. Prepare form data
-      const formData = new FormData();
-      const fileStream = fs.createReadStream(localMetadata.path);
-      
-      // We pass the existing fileId so the replica uses the exact same fileId
-      formData.append('file', fileStream, localMetadata.originalName);
-      formData.append('isReplica', 'true');
-      formData.append('fileId', localMetadata.fileId); 
-
-      // 2. Send to peer node
-      await axios.post(`${PEER_NODE_URL}/api/files/upload`, formData, {
-        headers: {
-          ...formData.getHeaders(),
-        },
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity
+      // 1. Enqueue Task in MongoDB
+      await ReplicationTask.create({
+        fileId: localMetadata.fileId,
+        originalName: localMetadata.originalName,
+        path: localMetadata.path,
+        gatewayDocumentId: gatewayDocumentId,
+        targetUrl: replicaNodeUrl,
+        replicaNodeId: replicaNodeId,
+        status: 'pending'
       });
-
-      console.log(`[Replication] Success for ${localMetadata.fileId}`);
-
-      // 3. Notify Gateway via Redis Pub/Sub
-      const publisher = getPublisher();
-      if (publisher) {
-        publisher.publish('replication:events', JSON.stringify({
-          documentId: gatewayDocumentId,
-          status: 'completed',
-          replicaNode: PEER_NODE_URL.includes('5001') ? 'storage-node-1' : 'storage-node-2'
-        }));
-      }
-
+      console.log(`[Replication] Enqueued task for ${localMetadata.fileId} to ${replicaNodeUrl}`);
     } catch (error) {
-      console.error(`[Replication] Failed for ${localMetadata.fileId}:`, error.message);
-      
-      // Notify Gateway of failure via Redis
-      const publisher = getPublisher();
-      if (publisher) {
-        publisher.publish('replication:events', JSON.stringify({
-          documentId: gatewayDocumentId,
-          status: 'failed'
-        }));
+      console.error(`[Replication] Failed to enqueue task:`, error.message);
+    }
+  }
+
+  // Background worker to process the queue
+  async processQueue() {
+    try {
+      const tasks = await ReplicationTask.find({
+        status: { $in: ['pending', 'retrying'] },
+        retryCount: { $lt: 5 } // maxRetries
+      }).limit(5);
+
+      if (tasks.length === 0) return;
+
+      for (let task of tasks) {
+        console.log(`[Replication Queue] Processing ${task.fileId} to ${task.targetUrl} (Attempt ${task.retryCount + 1})`);
+        
+        if (!fs.existsSync(task.path)) {
+           // File lost locally? Fail task permanently.
+           task.status = 'failed';
+           await task.save();
+           continue;
+        }
+
+        try {
+          const formData = new FormData();
+          const fileStream = fs.createReadStream(task.path);
+          formData.append('file', fileStream, task.originalName);
+          formData.append('isReplica', 'true');
+          formData.append('fileId', task.fileId); 
+
+          await axios.post(`${task.targetUrl}/api/files/upload`, formData, {
+            headers: { ...formData.getHeaders() },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+          });
+
+          // Success!
+          task.status = 'completed';
+          await task.save();
+
+          console.log(`[Replication Queue] Success for ${task.fileId}`);
+
+          // Notify Gateway
+          EventBus.publish(CHANNELS.REPLICATION_EVENTS, {
+            documentId: task.gatewayDocumentId,
+            status: 'completed',
+            replicaNode: task.replicaNodeId
+          });
+
+        } catch (error) {
+          console.error(`[Replication Queue] Error for ${task.fileId}:`, error.message);
+          task.retryCount += 1;
+          
+          if (task.retryCount >= task.maxRetries) {
+            task.status = 'failed';
+            // Notify Gateway of permanent failure
+            EventBus.publish(CHANNELS.REPLICATION_EVENTS, {
+              documentId: task.gatewayDocumentId,
+              status: 'failed'
+            });
+            console.log(`[Replication Queue] Permanent failure for ${task.fileId}`);
+          } else {
+            task.status = 'retrying';
+          }
+          await task.save();
+        }
       }
+    } catch (error) {
+      console.error(`[Replication Worker] Fatal error:`, error.message);
     }
   }
 }

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 const { protect, authorize } = require('../middleware/auth');
 
 const asyncHandler = (fn) => (req, res, next) => {
@@ -39,6 +40,19 @@ router.put('/:id/role', protect, authorize('admin'), asyncHandler(async (req, re
     io.emit('user:roleUpdated', { id: user._id, role: user.role, email: user.email });
   }
 
+  // Broadcast & Persist Audit Log in Memory Buffer
+  const nodeManager = require('../services/nodeManager');
+  const auditMsg = `Admin ${req.user.email} changed role of ${user.email} to ${role}`;
+  nodeManager.addAlert('AUDIT', auditMsg);
+
+  // Persist Audit Log in DB
+  await AuditLog.create({
+    action: 'ROLE_UPDATE',
+    details: `Role of ${user.email} changed to ${role}`,
+    performedBy: req.user.id,
+    performedByEmail: req.user.email
+  });
+
   res.status(200).json({ success: true, data: { id: user._id, name: user.name, email: user.email, role: user.role } });
 }));
 
@@ -52,10 +66,24 @@ router.delete('/:id', protect, authorize('admin'), asyncHandler(async (req, res)
   }
 
   await user.deleteOne();
+  
   const io = req.app.get('io');
   if (io) {
     io.emit('user:deleted', { id: user._id, email: user.email });
   }
+
+  // Broadcast & Persist Audit Log in Memory Buffer
+  const nodeManager = require('../services/nodeManager');
+  const auditMsg = `Admin ${req.user.email} deleted user ${user.email}`;
+  nodeManager.addAlert('AUDIT', auditMsg);
+
+  // Persist Audit Log in DB
+  await AuditLog.create({
+    action: 'USER_DELETE',
+    details: `Deleted user ${user.email}`,
+    performedBy: req.user.id,
+    performedByEmail: req.user.email
+  });
 
   res.status(200).json({ success: true, message: 'User deleted successfully' });
 }));

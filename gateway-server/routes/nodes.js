@@ -11,7 +11,8 @@ router.get('/', protect, authorize('admin'), (req, res) => {
     // Return the current state of nodes from the in-memory NodeManager
     res.status(200).json({
       success: true,
-      data: nodeManager.nodes
+      data: nodeManager.nodes,
+      alerts: nodeManager.alerts
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

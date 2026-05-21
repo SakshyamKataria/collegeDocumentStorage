@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const upload = require('../middleware/upload');
+const serviceAuth = require('../middleware/serviceAuth');
 const FileMetadata = require('../models/FileMetadata');
 const fs = require('fs');
 const replicator = require('../services/replicator');
@@ -9,14 +10,14 @@ const NODE_ID = process.env.NODE_ID || 'storage-node-1';
 
 // @route   POST /api/files/upload
 // @desc    Upload a file to this node
-// @access  Public (Gateway authenticated)
-router.post('/upload', upload.single('file'), async (req, res) => {
+// @access  Private (Gateway authenticated)
+router.post('/upload', serviceAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No file uploaded' });
     }
 
-    const { gatewayDocumentId, isReplica, fileId } = req.body;
+    const { gatewayDocumentId, isReplica, fileId, replicaNodeUrl, replicaNodeId } = req.body;
 
     // Save metadata to MongoDB
     // If it's a replica, use the exact fileId provided by primary node
@@ -33,7 +34,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     // If this is the primary upload (not a replica push), trigger replication in background
     if (isReplica !== 'true' && gatewayDocumentId) {
-      replicator.replicateFile(metadata, gatewayDocumentId);
+      replicator.replicateFile(metadata, gatewayDocumentId, replicaNodeUrl, replicaNodeId);
     }
 
     res.status(201).json({
@@ -52,8 +53,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
 // @route   GET /api/files/:fileId
 // @desc    Download/Get a file by ID
-// @access  Public
-router.get('/:fileId', async (req, res) => {
+// @access  Private
+router.get('/:fileId', serviceAuth, async (req, res) => {
   try {
     const fileId = req.params.fileId;
     const metadata = await FileMetadata.findOne({ fileId });
@@ -78,8 +79,8 @@ router.get('/:fileId', async (req, res) => {
 
 // @route   DELETE /api/files/:fileId
 // @desc    Delete a file
-// @access  Public (Gateway authenticated)
-router.delete('/:fileId', async (req, res) => {
+// @access  Private (Gateway authenticated)
+router.delete('/:fileId', serviceAuth, async (req, res) => {
   try {
     const fileId = req.params.fileId;
     const metadata = await FileMetadata.findOne({ fileId });

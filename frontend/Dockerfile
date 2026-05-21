@@ -3,8 +3,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-# Note: In a real production environment, this would be injected at runtime or build time
-ENV VITE_GATEWAY_URL=http://localhost:5000/api
+# Build args for API and Socket URLs (override at build time with --build-arg)
+ARG VITE_API_URL=http://localhost:5000/api
+ARG VITE_SOCKET_URL=http://localhost:5000
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_SOCKET_URL=$VITE_SOCKET_URL
 RUN npm run build
 
 FROM nginx:alpine

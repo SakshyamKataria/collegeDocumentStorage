@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client';
 
-const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:5000';
+const GATEWAY_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 
 let socket;
 

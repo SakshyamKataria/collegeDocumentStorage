@@ -1,46 +1,90 @@
 const axios = require('axios');
-const { getSubscriber } = require('../config/redis');
+const { EventBus } = require('../config/redis');
+const { CHANNELS } = require('../config/events');
+const logger = require('../utils/logger');
 
 class NodeManager {
   constructor() {
-    this.nodes = [
-      { id: 'storage-node-1', url: process.env.STORAGE_NODE_1 || 'http://localhost:5001', status: 'unknown', lastSeen: 0 },
-      { id: 'storage-node-2', url: process.env.STORAGE_NODE_2 || 'http://localhost:5002', status: 'unknown', lastSeen: 0 }
-    ];
+    this.nodes = []; // Dynamic registry
+    this.alerts = []; // Ring buffer for system alerts
     this.currentIndex = 0;
     this.checkInterval = 10000;
   }
 
-  // Start heartbeat monitoring via Redis
+  addAlert(type, message, nodeId = 'SYSTEM') {
+    const alert = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+      type, // 'FAULT' | 'RECOVERY' | 'INFO' | 'SECURITY' | 'AUDIT'
+      message,
+      nodeId,
+      timestamp: Date.now()
+    };
+    this.alerts.unshift(alert);
+    if (this.alerts.length > 50) this.alerts.pop();
+    
+    if (this.io) {
+      this.io.emit('system:alert', alert);
+    }
+  }
+
+  // Start heartbeat monitoring via Redis EventBus
   startMonitoring(io) {
     this.io = io;
-    console.log('💓 Starting Storage Node Heartbeat Monitor (Redis & Socket.IO)...');
+    logger.system('Starting Storage Node Heartbeat Monitor (EventBus & Socket.IO)...');
     
-    const subscriber = getSubscriber();
-    if (subscriber) {
-      subscriber.subscribe('node:heartbeat', (message) => {
-        try {
-          const data = JSON.parse(message);
-          const node = this.getNodeById(data.nodeId);
-          if (node) {
-            node.lastSeen = Date.now();
-            node.totalSize = data.totalSize; // Track storage usage
-            
-            if (node.status !== 'online') {
-              console.log(`✅ Node [${node.id}] is ONLINE (Redis Heartbeat)`);
-              node.status = 'online';
-            }
-            
-            // Emit to frontend dashboard
-            if (this.io) {
-              this.io.emit('node:update', this.nodes);
-            }
-          }
-        } catch (e) {
-          console.error('Heartbeat parse error', e);
+    // Subscribe to heartbeats
+    EventBus.subscribe(CHANNELS.NODE_HEARTBEAT, (data) => {
+      let node = this.getNodeById(data.nodeId);
+      if (!node) {
+        // Node Registration
+        node = { id: data.nodeId, url: data.url, status: 'unknown', lastSeen: 0, totalSize: 0, latencyMs: 0 };
+        this.nodes.push(node);
+        logger.network(`Node [${node.id}] REGISTERED dynamically at ${node.url}`);
+      }
+      
+      node.lastSeen = Date.now();
+      node.totalSize = data.totalSize; // Track storage usage
+      
+      if (data.sentAt) {
+        node.latencyMs = Date.now() - data.sentAt;
+      }
+      
+      // Dynamically update node URL from heartbeat (supports multi-machine deployment)
+      if (data.url) {
+        node.url = data.url;
+      }
+
+      if (node.status !== 'online') {
+        logger.network(`Node [${node.id}] is ONLINE at ${node.url} (Redis Heartbeat)`);
+        if (node.status === 'offline') {
+           this.addAlert('RECOVERY', `Node ${node.id} recovered and resumed heartbeats.`, node.id);
+        } else if (node.status === 'unknown') {
+           this.addAlert('INFO', `Node ${node.id} successfully registered.`, node.id);
         }
-      });
-    }
+        node.status = 'online';
+      }
+      
+      // Emit to frontend dashboard
+      if (this.io) {
+        this.io.emit('node:update', this.nodes);
+      }
+    });
+
+    // Subscribe to Graceful Deregistration
+    EventBus.subscribe(CHANNELS.NODE_DEREGISTER, (data) => {
+      logger.warn(`Node [${data.nodeId}] DEREGISTERING (Graceful Shutdown)`);
+      this.addAlert('FAULT', `Node ${data.nodeId} gracefully shut down and is now offline.`, data.nodeId);
+      
+      const node = this.getNodeById(data.nodeId);
+      if (node) {
+        node.status = 'offline';
+        node.lastSeen = Date.now(); // Reset timer so it stays on dashboard for 60s before disappearing
+      }
+      
+      if (this.io) {
+        this.io.emit('node:update', this.nodes);
+      }
+    });
 
     // Still need an interval to check if nodes timed out
     setInterval(() => this.checkStaleNodes(), this.checkInterval);
@@ -51,13 +95,30 @@ class NodeManager {
     const now = Date.now();
     let stateChanged = false;
 
+    // Filter out nodes that have missed heartbeats for > 120 seconds (Deregistration Cleanup)
+    const activeNodes = [];
     for (let node of this.nodes) {
-      // If we haven't seen a heartbeat in 15 seconds, mark offline
-      if (node.status === 'online' && now - node.lastSeen > 15000) {
-        console.log(`❌ Node [${node.id}] is OFFLINE (Missed Heartbeat)`);
+      if (now - node.lastSeen > 120000) {
+        logger.error(`Node [${node.id}] DEREGISTERED (Timeout > 120s)`);
+        this.addAlert('FAULT', `Node ${node.id} permanently deregistered due to 120s timeout.`, node.id);
+        stateChanged = true;
+        continue; // Drop from activeNodes
+      }
+
+      // If we haven't seen a heartbeat in 30 seconds, mark offline
+      if (node.status === 'online' && now - node.lastSeen > 30000) {
+        logger.warn(`Node [${node.id}] is OFFLINE (Missed Heartbeat > 30s)`);
+        this.addAlert('FAULT', `Node ${node.id} went offline. No heartbeat for 30s. Traffic isolated.`, node.id);
         node.status = 'offline';
         stateChanged = true;
       }
+      
+      activeNodes.push(node);
+    }
+    
+    if (this.nodes.length !== activeNodes.length) {
+      this.nodes = activeNodes;
+      stateChanged = true;
     }
 
     if (stateChanged && this.io) {

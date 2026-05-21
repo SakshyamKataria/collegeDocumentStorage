@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create a configured Axios instance
 const api = axios.create({
-  baseURL: import.meta.env.VITE_GATEWAY_URL || 'http://localhost:5000/api',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
 });
 
 // Interceptor to attach JWT token to every request

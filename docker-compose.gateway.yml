@@ -1,0 +1,28 @@
+services:
+  gateway-server:
+    build: ./gateway-server
+    container_name: distridoc-gateway
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env.gateway
+    networks:
+      - distridoc-net
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:5000/api}
+        - VITE_SOCKET_URL=${VITE_SOCKET_URL:-http://localhost:5000}
+    container_name: distridoc-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - gateway-server
+    networks:
+      - distridoc-net
+
+networks:
+  distridoc-net:
+    driver: bridge
